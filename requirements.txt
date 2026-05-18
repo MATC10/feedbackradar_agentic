@@ -1,0 +1,49 @@
+# Core Framework
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# Agents & LLM
+langgraph
+langchain
+langchain-community
+langchain-ollama
+
+# MCP
+fastmcp
+mcp
+mcp-atlassian
+
+# Databases
+pymongo
+motor
+elasticsearch>=8.0.0,<9.0.0
+
+# Embeddings & LLM
+ollama
+openai
+
+# Data processing
+python-multipart
+python-dateutil
+
+# Gmail MCP via Anthropic
+anthropic
+google-auth
+google-auth-oauthlib
+
+# Frontend
+streamlit
+
+# Utilities
+python-dotenv
+httpx
+aiohttp
+aiofiles
+
+# Development
+pytest
+pytest-asyncio
+black
+ruff

@@ -1,0 +1,79 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: feedbackradar_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: feedbackradar
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet mongodb://localhost:27017/test --eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 1)'"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - feedbackradar_network
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: feedbackradar_elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://localhost:9200/_cluster/health | grep -Eq '\"status\":\"(green|yellow)\"'"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - feedbackradar_network
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: feedbackradar_ollama
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - feedbackradar_network
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  elasticsearch_data:
+  ollama_data:
+
+networks:
+  feedbackradar_network:
+    driver: bridge
