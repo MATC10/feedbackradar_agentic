@@ -8,6 +8,7 @@ suficiente información para responder con datos reales.
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -129,6 +130,21 @@ TOOLS = [
 ]
 
 
+def _parse_failed_generation(failed_gen: str) -> list[tuple[str, dict]]:
+    """Extrae tool calls del formato XML que produce Llama cuando falla el tool calling.
+    Ejemplo: <function=get_feedback_stats({"theme": "pago"})</function>
+    """
+    calls = []
+    for match in re.finditer(r'<function=(\w+)\((\{.*?\})\)', failed_gen, re.DOTALL):
+        name = match.group(1)
+        try:
+            args = json.loads(match.group(2))
+        except json.JSONDecodeError:
+            args = {}
+        calls.append((name, args))
+    return calls
+
+
 async def _execute_tool(name: str, args: dict) -> Any:
     """Ejecuta una herramienta via MCP server y devuelve el resultado serializable."""
     try:
@@ -240,10 +256,43 @@ async def run_chat_agent(question: str) -> ChatAgentResult:
         except BadRequestError as e:
             error_body = getattr(e, "body", {}) or {}
             if isinstance(error_body, dict) and error_body.get("code") == "tool_use_failed":
+                failed_gen = error_body.get("failed_generation", "")
+                parsed_calls = _parse_failed_generation(failed_gen)
                 logger.warning(
-                    f"Iteración {iterations}: tool_use_failed (el modelo generó un tool call "
-                    f"en formato incorrecto). Reintentando sin herramientas."
+                    f"Iteración {iterations}: tool_use_failed. "
+                    f"Tools parseadas del error: {[n for n, _ in parsed_calls]}"
                 )
+
+                if parsed_calls:
+                    # Ejecutar manualmente las tools que el modelo intentó invocar
+                    results_parts = []
+                    for name, args in parsed_calls:
+                        logger.info(f"  Ejecutando manualmente: {name}({args})")
+                        result = await _execute_tool(name, args)
+                        tools_called.append({"tool": name, "args": args})
+
+                        if name == "search_feedback" and isinstance(result, dict):
+                            for r in result.get("results", []):
+                                if r.get("text"):
+                                    evidence.append(r)
+
+                        results_parts.append(
+                            f"[{name}]: {json.dumps(result, ensure_ascii=False)}"
+                        )
+
+                    # Inyectar resultados en el contexto y continuar el loop
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Datos recuperados del sistema de feedback:\n\n"
+                            + "\n\n".join(results_parts)
+                            + "\n\nUsando estos datos, responde la pregunta original."
+                        ),
+                    })
+                    continue  # siguiente iteración: el LLM ya tiene datos reales
+
+                # Sin tools parseables: responder con lo que haya en contexto
+                logger.warning("No se pudieron parsear tools del error, respondiendo sin datos.")
                 fallback_messages = messages + [{
                     "role": "user",
                     "content": (
